@@ -59,7 +59,7 @@ class TimerShutdownApp:
         self.root.title("Timer Shutdown")
         self.root.resizable(False, False)
         self.root.configure(bg=BG)
-        self._center_window(width=430, height=580)
+        self._center_window(width=430, height=630)
         self.root.protocol("WM_DELETE_WINDOW", self._on_close)
 
     def _center_window(self, width: int, height: int) -> None:
@@ -119,27 +119,48 @@ class TimerShutdownApp:
         self.minutes_var = tk.StringVar(value="30")
         self.seconds_var = tk.StringVar(value="0")
 
+        # (label, var, field_key, step)
         fields = [
-            ("Horas",    self.hours_var),
-            ("Minutos",  self.minutes_var),
-            ("Segundos", self.seconds_var),
+            ("Horas",    self.hours_var,   "h",  1),
+            ("Minutos",  self.minutes_var, "m", 30),
+            ("Segundos", self.seconds_var, "s", 30),
         ]
 
-        for col_idx, (label, var) in enumerate(fields):
+        for col_idx, (label, var, field, step) in enumerate(fields):
             col = tk.Frame(row, bg=SURFACE)
             col.grid(row=0, column=col_idx, padx=10)
 
             tk.Label(
                 col, text=label, font=("Segoe UI", 9),
                 fg=SUBTEXT, bg=SURFACE,
-            ).pack(pady=(0, 4))
+            ).pack(pady=(0, 2))
 
-            tk.Entry(
+            def _arrow_btn(parent, text, f=field, st=step, sign=+1):
+                return tk.Button(
+                    parent, text=text,
+                    font=("Segoe UI", 9, "bold"),
+                    fg=SUBTEXT, bg=OVERLAY,
+                    activebackground=BLUE, activeforeground=BG,
+                    bd=0, width=5, pady=2, cursor="hand2", relief="flat",
+                    command=lambda: self._step_time(f, sign * st),
+                )
+
+            _arrow_btn(col, "▲", field, step, +1).pack()
+
+            entry = tk.Entry(
                 col, textvariable=var,
                 width=5, font=("Consolas", 18, "bold"),
                 bg=OVERLAY, fg=TEXT, insertbackground=TEXT,
                 bd=0, justify="center", relief="flat",
-            ).pack(ipady=8)
+            )
+            entry.pack(ipady=8)
+            # Scroll do mouse sobre o campo também ajusta o valor
+            entry.bind(
+                "<MouseWheel>",
+                lambda e, f=field, st=step: self._step_time(f, st if e.delta > 0 else -st),
+            )
+
+            _arrow_btn(col, "▼", field, step, -1).pack()
 
     def _build_action_selector(self) -> None:
         card = self._card(self.root)
@@ -236,6 +257,46 @@ class TimerShutdownApp:
         h, rem = divmod(seconds, 3600)
         m, s   = divmod(rem, 60)
         return f"{h:02d}:{m:02d}:{s:02d}"
+
+    def _step_time(self, field: str, delta: int) -> None:
+        """Incrementa/decrementa um campo de tempo propagando carry e borrow entre h, m, s."""
+        try:
+            h = int(self.hours_var.get())
+            m = int(self.minutes_var.get())
+            s = int(self.seconds_var.get())
+        except ValueError:
+            h, m, s = 0, 0, 0
+
+        if field == "h":
+            h += delta
+        elif field == "m":
+            m += delta
+        else:
+            s += delta
+
+        # Normaliza segundos para [0, 59] com carry/borrow em minutos
+        if s >= 60:
+            m += s // 60
+            s %= 60
+        elif s < 0:
+            s += 60
+            m -= 1
+
+        # Normaliza minutos para [0, 59] com carry/borrow em horas
+        if m >= 60:
+            h += m // 60
+            m %= 60
+        elif m < 0:
+            m += 60
+            h -= 1
+
+        # Horas não vão abaixo de zero
+        if h < 0:
+            h, m, s = 0, 0, 0
+
+        self.hours_var.set(str(h))
+        self.minutes_var.set(str(m))
+        self.seconds_var.set(str(s))
 
     def _parse_time(self):
         """Lê os campos de entrada e retorna o total de segundos, ou None em caso de erro."""
